@@ -1,0 +1,17 @@
+[package]
+name = "hcc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.71"
+futures = "0.3.28"
+hcloud = "0.13.0"
+k8s-openapi = { version = "0.18.0", features = ["v1_26"] }
+kube = { version = "0.82.2", features = ["runtime", "ws", "client"] }
+serde_json = "1.0.96"
+serde_yaml = "0.9.21"
+thiserror = "1.0.40"
+tokio = { version = "1.28.0", features = ["full"] }
+tracing = "0.1.37"
+tracing-subscriber = "0.3.17"
