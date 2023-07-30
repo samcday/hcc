@@ -4,8 +4,9 @@
 // One benefit of this approach is a HC node can
 
 use k8s_openapi::api::batch::v1::Job;
-use k8s_openapi::api::core::v1::{Node, NodeAddress, Pod};
+use k8s_openapi::api::core::v1::{Node, NodeAddress, Pod, PodSpec};
 use k8s_openapi::serde::Deserialize;
+use k8s_openapi::DeepMerge;
 use kube::api::{DeleteParams, ListParams, LogParams, Patch, PatchParams, PostParams};
 use kube::runtime::conditions;
 use kube::runtime::controller::Action;
@@ -14,12 +15,15 @@ use kube::Client;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
+use serde_json::json;
 use thiserror::Error;
 use tokio::time::error::Elapsed;
 use tracing::info;
+use crate::AdoptionConfig;
 
 pub struct Data {
     pub client: Client,
+    pub config: AdoptionConfig
 }
 
 #[derive(Debug, Error)]
@@ -96,7 +100,28 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
     }
 
     if job.is_none() {
-        let data = serde_json::from_value(serde_json::json!({
+        let mut pod_spec: PodSpec = serde_json::from_value(json!({
+            "containers": [{
+                "name": "metadata",
+                "image": "curlimages/curl:latest",
+                "args": [
+                    "-s",
+                    "--fail",
+                    "--retry",
+                    "3",
+                    "http://169.254.169.254/hetzner/v1/metadata",
+                ],
+            }],
+            "hostNetwork": true,
+            "nodeName": node_name,
+            "restartPolicy": "Never",
+            "tolerations": [{
+                "operator": "Exists",
+            }],
+        }))?;
+        pod_spec.merge_from(ctx.config.pod_spec.clone());
+
+        let data = serde_json::from_value(json!({
             "apiVersion": "batch/v1",
             "kind": "Job",
             "metadata": {
@@ -104,25 +129,7 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
             },
             "spec": {
                 "template": {
-                    "spec": {
-                        "containers": [{
-                            "name": "metadata",
-                            "image": "curlimages/curl:latest",
-                            "args": [
-                                "-s",
-                                "--fail",
-                                "--retry",
-                                "3",
-                                "http://169.254.169.254/hetzner/v1/metadata",
-                            ],
-                        }],
-                        "hostNetwork": true,
-                        "nodeName": node_name,
-                        "restartPolicy": "Never",
-                        "tolerations": [{
-                            "operator": "Exists",
-                        }],
-                    },
+                    "spec": pod_spec,
                 },
                 "ttlSecondsAfterFinished": 600,
             },
@@ -168,7 +175,7 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
                 .patch_status(
                     node_name,
                     &PatchParams::default(),
-                    &Patch::Merge(serde_json::json!({
+                    &Patch::Merge(json!({
                         "status": {
                             "addresses": addresses,
                         }
@@ -193,7 +200,7 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
                         .patch_metadata(
                             node_name,
                             &PatchParams::default(),
-                            &Patch::Merge(serde_json::json!({
+                            &Patch::Merge(json!({
                                 "metadata": {
                                     "labels": {
                                         crate::LABEL_REGION: format!("hcloud-{}", region),
@@ -218,7 +225,7 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
         "patching Node {} with provider ID and removing taint",
         node_name
     );
-    nodes.patch(node_name, &PatchParams::default(), &Patch::Merge(serde_json::json!({
+    nodes.patch(node_name, &PatchParams::default(), &Patch::Merge(json!({
         "spec": {
             "providerID": format!("hcloud://{}", id),
             "taints": taints.iter().filter(|x| x.key != crate::TAINT_UNINITIALIZED).collect::<Vec<_>>(),
