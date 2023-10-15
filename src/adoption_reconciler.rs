@@ -1,4 +1,4 @@
-// Reconciles Nodes with the cloud-provider uninitialized taint + no spec.providerID set.
+// Reconciles Nodes with an uninitialized taint (configurable) + no spec.providerID set.
 // Schedules a Job that scrapes HC metadata service.
 // If Job is successful, metadata information is used to set:
 //  * topology labels (if enabled)
@@ -30,6 +30,7 @@ use tracing::info;
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct AdoptionConfig {
     pub enabled: bool,
+    pub taint: String,
     pub pod_spec: PodSpec,
     pub topology: bool,
     pub external_address: bool,
@@ -40,6 +41,7 @@ impl Default for AdoptionConfig {
         Self {
             enabled: true,
             pod_spec: PodSpec::default(),
+            taint: "node.cloudprovider.kubernetes.io/uninitialized".to_string(),
             topology: true,
             external_address: true,
         }
@@ -185,7 +187,7 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
     nodes.patch(node_name, &PatchParams::default(), &Patch::Merge(json!({
         "spec": {
             "providerID": format!("hcloud://{}", id),
-            "taints": taints.iter().filter(|x| x.key != crate::TAINT_UNINITIALIZED).collect::<Vec<_>>(),
+            "taints": taints.iter().filter(|x| x.key != ctx.config.taint).collect::<Vec<_>>(),
         },
     }))).await?;
 
@@ -208,7 +210,7 @@ async fn ensure_job(node: &Arc<Node>, ctx: &Arc<Data>, client: &Client, job_name
     let job = jobs.get_opt(job_name).await?;
 
     let taints = node.spec.as_ref().unwrap().clone().taints.unwrap_or_default();
-    let tainted = taints.iter().any(|x| x.key.eq(crate::TAINT_UNINITIALIZED));
+    let tainted = taints.iter().any(|x| x.key.eq(&ctx.config.taint));
 
     let deleted = node.metadata.deletion_timestamp.is_some();
     if deleted || provider_id.is_some() || !tainted {
