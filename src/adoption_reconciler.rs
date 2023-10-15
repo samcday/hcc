@@ -3,6 +3,7 @@
 // and Node is "adopted" by setting spec.providerID to hcloud://<server id>
 // One benefit of this approach is a HC node can
 
+use crate::AdoptionConfig;
 use k8s_openapi::api::batch::v1::Job;
 use k8s_openapi::api::core::v1::{Node, NodeAddress, Pod, PodSpec};
 use k8s_openapi::serde::Deserialize;
@@ -12,18 +13,17 @@ use kube::runtime::conditions;
 use kube::runtime::controller::Action;
 use kube::runtime::wait::await_condition;
 use kube::Client;
+use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
-use serde_json::json;
 use thiserror::Error;
 use tokio::time::error::Elapsed;
 use tracing::info;
-use crate::AdoptionConfig;
 
 pub struct Data {
     pub client: Client,
-    pub config: AdoptionConfig
+    pub config: AdoptionConfig,
 }
 
 #[derive(Debug, Error)]
@@ -134,6 +134,8 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
                 "ttlSecondsAfterFinished": 600,
             },
         }))?;
+
+        info!("scheduling metadata job for node {}", node_name);
         jobs.create(&PostParams::default(), &data).await?;
     }
 
@@ -145,11 +147,9 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
         .await?;
     let mut job_pod = None;
     for pod in job_pods {
-        if let Some(status) = pod.status {
-            if let Some(phase) = status.phase {
-                if phase == "Succeeded" {
-                    job_pod = Some(pod.metadata.name.unwrap());
-                }
+        if let Some(phase) = pod.status.and_then(|s| s.phase) {
+            if phase == "Succeeded" {
+                job_pod = Some(pod.metadata.name.unwrap());
             }
         }
     }
