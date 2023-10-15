@@ -18,7 +18,6 @@ use kube::runtime::controller::Action;
 use kube::runtime::wait::await_condition;
 use kube::{Api, Client};
 use serde_json::json;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 use serde::{Deserialize, Serialize};
@@ -114,7 +113,7 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
 
     if ctx.config.external_address {
         if let Some(Value::String(public_ipv4)) = metadata.get("public-ipv4") {
-            let mut addresses = node_status.addresses.clone().unwrap_or(vec![]);
+            let mut addresses = node_status.addresses.clone().unwrap_or_default();
             if !addresses.iter().any(|x| x.type_.eq("ExternalIP")) {
                 info!(
                 "patching Node {} with external IP {}",
@@ -143,7 +142,7 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
         if let Some(Value::String(az)) = metadata.get("availability-zone") {
             if let Some(zone) = az.split('-').next() {
                 if let Some(Value::String(region)) =  metadata.get("region") {
-                    let labels = node.metadata.labels.clone().unwrap_or(BTreeMap::default());
+                    let labels = node.metadata.labels.clone().unwrap_or_default();
                     if !labels.contains_key(crate::LABEL_ZONE)
                         && !labels.contains_key(crate::LABEL_REGION)
                     {
@@ -182,7 +181,7 @@ pub async fn reconcile(node: Arc<Node>, ctx: Arc<Data>) -> Result<Action, Error>
         node_name
     );
 
-    let taints = node.spec.as_ref().unwrap().clone().taints.unwrap_or(vec![]);
+    let taints = node.spec.as_ref().unwrap().clone().taints.unwrap_or_default();
     nodes.patch(node_name, &PatchParams::default(), &Patch::Merge(json!({
         "spec": {
             "providerID": format!("hcloud://{}", id),
@@ -206,9 +205,9 @@ async fn ensure_job(node: &Arc<Node>, ctx: &Arc<Data>, client: &Client, job_name
         .ok_or_else(|| Error::NodeMissingSpec)?
         .provider_id;
 
-    let job = jobs.get_opt(&job_name).await?;
+    let job = jobs.get_opt(job_name).await?;
 
-    let taints = node.spec.as_ref().unwrap().clone().taints.unwrap_or(vec![]);
+    let taints = node.spec.as_ref().unwrap().clone().taints.unwrap_or_default();
     let tainted = taints.iter().any(|x| x.key.eq(crate::TAINT_UNINITIALIZED));
 
     let deleted = node.metadata.deletion_timestamp.is_some();
@@ -216,7 +215,7 @@ async fn ensure_job(node: &Arc<Node>, ctx: &Arc<Data>, client: &Client, job_name
         // Node is being deleted, or is no longer tainted, make sure the Job no longer exists.
         if let Some(job) = job {
             info!("deleting metadata job {:?}", job.metadata.name);
-            jobs.delete(&job_name, &DeleteParams::background()).await?;
+            jobs.delete(job_name, &DeleteParams::background()).await?;
         }
         return Ok(Some(Action::await_change()));
     }
@@ -261,7 +260,7 @@ async fn ensure_job(node: &Arc<Node>, ctx: &Arc<Data>, client: &Client, job_name
         jobs.create(&PostParams::default(), &data).await?;
     }
 
-    let cond = await_condition(jobs.clone(), &job_name, conditions::is_job_completed());
+    let cond = await_condition(jobs.clone(), job_name, conditions::is_job_completed());
     let _ = tokio::time::timeout(Duration::from_secs(15), cond).await?;
 
     Ok(None)
