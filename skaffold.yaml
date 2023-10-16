@@ -1,0 +1,21 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+  name: hcc
+build:
+  artifacts:
+    - image: ghcr.io/samcday/hcc
+      docker:
+        dockerfile: Dockerfile
+deploy:
+  helm:
+    releases:
+      - name: hcc
+        chartPath: chart
+        valuesFiles:
+          - chart/values.yaml
+        version: 0.0.1
+        setValueTemplates:
+          image:
+            repository: "{{.IMAGE_REPO_ghcr_io_samcday_hcc}}"
+            tag: "{{.IMAGE_TAG_ghcr_io_samcday_hcc}}@{{.IMAGE_DIGEST_ghcr_io_samcday_hcc}}"
