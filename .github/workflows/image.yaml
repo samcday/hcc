@@ -35,6 +35,26 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
+      - name: Cache /usr/local/cargo/registry
+        uses: actions/cache@v3
+        with:
+          path: usr-local-cargo-registry
+          key: usr-local-cargo-registry-${{ hashFiles('Cargo.toml') }}
+      - name: inject /usr/local/cargo/registry into docker
+        uses: reproducible-containers/buildkit-cache-dance@v2.1.2
+        with:
+          cache-source: usr-local-cargo-registry
+          cache-target: /usr/local/cargo/registry
+      - name: Cache /usr/src/hcc/target
+        uses: actions/cache@v3
+        with:
+          path: usr-src-hcc-target
+          key: usr-src-hcc-target-${{ hashFiles('Cargo.toml') }}
+      - name: inject /usr/local/cargo/registry into docker
+        uses: reproducible-containers/buildkit-cache-dance@v2.1.2
+        with:
+          cache-source: usr-src-hcc-target
+          cache-target: /usr/src/hcc/target
       - name: Build and push
         uses: docker/build-push-action@v2
         with:
