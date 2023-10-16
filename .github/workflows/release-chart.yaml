@@ -21,7 +21,7 @@ jobs:
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"
           git worktree add chart/repo gh-pages
-          helm package chart -d chart/repo
+          helm package chart --version $TAG -d chart/repo
           cd chart/repo
           helm repo index . --url=https://samcday.github.io/hcc/
           git add .
